@@ -236,7 +236,7 @@ PY
 ## Docker deployment
 
 Docker deployment is now supported for this fork. The recommended container
-path is a runtime image built from the released SM70 wheel, not a full
+path is a runtime image built from the released SM70 or SM75 wheel, not a full
 source-build image.
 
 ### 1. Build the recommended SM70 runtime image
@@ -362,6 +362,28 @@ it is not the recommended first path for public users.
 
 For this fork, the recommended public Docker path is still the released wheel
 image above.
+
+### Build the SM75 (Turing) runtime image
+
+SM75 covers **T4** and **RTX 2080** series GPUs (Turing architecture). The SM75
+image uses the same wheel as the SM70 image because the wheel already includes
+kernels for multiple architectures. The key difference is that the SM75
+entrypoint defaults to `FLASH_ATTN` instead of `TRITON_ATTN`, taking advantage
+of native FlashAttention support on Turing GPUs.
+
+```bash
+docker build \
+  -f docker/Dockerfile.sm75-wheel \
+  -t 1cat-vllm-sm75:0.0.2 \
+  .
+```
+
+The SM75 image entrypoint includes these public defaults:
+
+- `--skip-mm-profiling`
+- `--limit-mm-per-prompt '{"image":0,"video":0}'`
+- `--attention-backend FLASH_ATTN`
+- `--compilation-config '{"cudagraph_mode":"full_and_piecewise","cudagraph_capture_sizes":[1]}'`
 
 ## Source build
 
