@@ -16,7 +16,7 @@ from vllm.triton_utils import tl, triton
 
 from .index import prepare_chunk_indices
 from .op import make_tensor_descriptor
-from .utils import input_guard, is_amd, is_sm70, is_tma_supported
+from .utils import input_guard, is_amd, is_sm7x, is_tma_supported
 
 FLA_TRIL_PRECISION = os.environ.get("FLA_TRIL_PRECISION", "ieee")
 ALLOWED_TRIL_PRECISIONS = ["ieee", "tf32"] if is_amd else ["ieee", "tf32", "tf32x3"]
@@ -24,13 +24,13 @@ assert FLA_TRIL_PRECISION in ALLOWED_TRIL_PRECISIONS, (
     f"FLA_TRIL_PRECISION must be one of {ALLOWED_TRIL_PRECISIONS}, but got {FLA_TRIL_PRECISION}"
 )
 
-# SM70: reduce autotuner configs to save memory during tuning
+# SM7x (Volta/Turing): reduce autotuner configs to save memory during tuning
 _tril_16x16_configs = (
     [
         triton.Config({}, num_warps=num_warps, num_stages=2)
         for num_warps in [2, 4]
     ]
-    if is_sm70
+    if is_sm7x
     else [
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
         for num_warps in [1, 2, 4, 8]
@@ -42,7 +42,7 @@ _tril_32x32_configs = (
         triton.Config({}, num_warps=num_warps, num_stages=2)
         for num_warps in [2, 4]
     ]
-    if is_sm70
+    if is_sm7x
     else [
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
         for num_warps in [1, 2, 4, 8]
@@ -54,7 +54,7 @@ _tril_64x64_configs = (
         triton.Config({}, num_warps=num_warps, num_stages=2)
         for num_warps in [2, 4]
     ]
-    if is_sm70
+    if is_sm7x
     else [
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
         for num_warps in [2, 4, 8]

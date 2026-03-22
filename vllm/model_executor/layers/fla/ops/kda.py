@@ -23,14 +23,14 @@ from .index import prepare_chunk_indices
 from .l2norm import l2norm_fwd
 from .op import exp, log
 from .solve_tril import solve_tril
-from .utils import is_amd, is_sm70
+from .utils import is_amd, is_sm7x
 
 BT_LIST_AUTOTUNE = [32, 64, 128]
 NUM_WARPS_AUTOTUNE = [2, 4, 8, 16] if is_amd else [4, 8, 16, 32]
 
 
-def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
-    raw = os.getenv(env_name)
+def _parse_sm7x_int_list(env_name_sm7x: str, env_name_sm70: str, default_vals: list[int]) -> list[int]:
+    raw = os.getenv(env_name_sm7x) or os.getenv(env_name_sm70)
     if raw is None or not raw.strip():
         return default_vals
     out: list[int] = []
@@ -47,8 +47,8 @@ def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
     return out or default_vals
 
 
-_sm70_kda_warps = _parse_sm70_int_list("VLLM_SM70_GDN_KDA_WARPS", [4])
-_sm70_kda_stages = _parse_sm70_int_list("VLLM_SM70_GDN_KDA_STAGES", [2])
+_sm7x_kda_warps = _parse_sm7x_int_list("VLLM_SM7X_GDN_KDA_WARPS", "VLLM_SM70_GDN_KDA_WARPS", [4])
+_sm7x_kda_stages = _parse_sm7x_int_list("VLLM_SM7X_GDN_KDA_STAGES", "VLLM_SM70_GDN_KDA_STAGES", [2])
 
 
 def fused_recurrent_kda_fwd(
@@ -510,7 +510,7 @@ class FusedRMSNormGated(nn.Module):
             for BK in [32, 64]
             for num_warps in [4]
         ]
-        if is_sm70
+        if is_sm7x
         else [
             triton.Config({"BK": BK}, num_warps=num_warps, num_stages=num_stages)
             for BK in [32, 64]
@@ -625,7 +625,7 @@ def chunk_kda_scaled_dot_kkt_fwd_kernel_intra_sub_inter(
 @triton.autotune(
     configs=(
         [triton.Config({}, num_warps=num_warps) for num_warps in [2, 4]]
-        if is_sm70
+        if is_sm7x
         else [triton.Config({}, num_warps=num_warps) for num_warps in [1, 2, 4, 8]]
     ),
     key=["BK", "BT"],
@@ -816,10 +816,10 @@ def chunk_kda_scaled_dot_kkt_fwd(
     configs=(
         [
             triton.Config({}, num_warps=num_warps, num_stages=num_stages)
-            for num_warps in _sm70_kda_warps
-            for num_stages in _sm70_kda_stages
+            for num_warps in _sm7x_kda_warps
+            for num_stages in _sm7x_kda_stages
         ]
-        if is_sm70
+        if is_sm7x
         else [
             triton.Config({}, num_warps=num_warps, num_stages=num_stages)
             for num_warps in [2, 4, 8]
@@ -1027,7 +1027,7 @@ def recompute_w_u_fwd(
             for BK in [32, 64]
             for BV in [64]
         ]
-        if is_sm70
+        if is_sm7x
         else [
             triton.Config({"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages)
             for BK in [32, 64]
@@ -1290,7 +1290,7 @@ def chunk_kda(
             for bt in [32, 64]
             for nw in [4, 8]
         ]
-        if is_sm70
+        if is_sm7x
         else [
             triton.Config({"BT": bt}, num_warps=nw, num_stages=ns)
             for bt in BT_LIST_AUTOTUNE

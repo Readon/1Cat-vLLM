@@ -56,22 +56,23 @@ def _round_num_warps(value: int) -> int:
     return 8
 
 
-_SM70_FLA_BV_OVERRIDE = _parse_positive_int_env("VLLM_SM70_FLA_BV")
-_SM70_FLA_WARPS_OVERRIDE = _parse_positive_int_env("VLLM_SM70_FLA_WARPS")
-_SM70_FLA_STAGES_OVERRIDE = _parse_positive_int_env("VLLM_SM70_FLA_STAGES")
-_SM70_FLA_TARGET_WAVES = _parse_positive_int_env("VLLM_SM70_FLA_TARGET_WAVES") or 2
-_SM70_FLA_BV_CANDIDATES = _parse_positive_int_list_env(
-    "VLLM_SM70_FLA_BV_CANDIDATES", [32, 16, 8]
+_SM7X_FLA_BV_OVERRIDE = _parse_positive_int_env("VLLM_SM7X_FLA_BV") or _parse_positive_int_env("VLLM_SM70_FLA_BV")
+_SM7X_FLA_WARPS_OVERRIDE = _parse_positive_int_env("VLLM_SM7X_FLA_WARPS") or _parse_positive_int_env("VLLM_SM70_FLA_WARPS")
+_SM7X_FLA_STAGES_OVERRIDE = _parse_positive_int_env("VLLM_SM7X_FLA_STAGES") or _parse_positive_int_env("VLLM_SM70_FLA_STAGES")
+_SM7X_FLA_TARGET_WAVES = _parse_positive_int_env("VLLM_SM7X_FLA_TARGET_WAVES") or _parse_positive_int_env("VLLM_SM70_FLA_TARGET_WAVES") or 2
+_SM7X_FLA_BV_CANDIDATES = (
+    _parse_positive_int_list_env("VLLM_SM7X_FLA_BV_CANDIDATES", [])
+    or _parse_positive_int_list_env("VLLM_SM70_FLA_BV_CANDIDATES", [32, 16, 8])
 )
 
 
-def _select_sm70_bv(V: int, N: int, HV: int, device: torch.device) -> int:
+def _select_sm7x_bv(V: int, N: int, HV: int, device: torch.device) -> int:
     v_pow2 = triton.next_power_of_2(V)
-    if _SM70_FLA_BV_OVERRIDE is not None:
-        return min(v_pow2, triton.next_power_of_2(_SM70_FLA_BV_OVERRIDE))
+    if _SM7X_FLA_BV_OVERRIDE is not None:
+        return min(v_pow2, triton.next_power_of_2(_SM7X_FLA_BV_OVERRIDE))
 
     candidates: list[int] = []
-    for cand in _SM70_FLA_BV_CANDIDATES:
+    for cand in _SM7X_FLA_BV_CANDIDATES:
         cand_pow2 = min(v_pow2, triton.next_power_of_2(cand))
         if cand_pow2 not in candidates:
             candidates.append(cand_pow2)
@@ -83,7 +84,7 @@ def _select_sm70_bv(V: int, N: int, HV: int, device: torch.device) -> int:
         return candidates[-1]
 
     sm_count = torch.cuda.get_device_properties(device).multi_processor_count
-    target_ctas = sm_count * _SM70_FLA_TARGET_WAVES
+    target_ctas = sm_count * _SM7X_FLA_TARGET_WAVES
     fallback = candidates[-1]
     for cand in candidates:
         ctas = triton.cdiv(V, cand) * N * HV
@@ -270,30 +271,32 @@ def fused_recurrent_gated_delta_rule_fwd(
     HV = v.shape[2]
     N = B if cu_seqlens is None else len(cu_seqlens) - 1
     BK = triton.next_power_of_2(K)
-    from vllm.model_executor.layers.fla.ops.utils import is_sm70
-    BV = _select_sm70_bv(V, N, HV, q.device) if is_sm70 else min(
+    from vllm.model_executor.layers.fla.ops.utils import is_sm75, is_sm7x
+    BV = _select_sm7x_bv(V, N, HV, q.device) if is_sm7x else min(
         triton.next_power_of_2(V), 32
     )
     NK, NV = triton.cdiv(K, BK), triton.cdiv(V, BV)
     assert NK == 1, "NK > 1 is not supported yet"
 
-    if is_sm70:
-        if _SM70_FLA_STAGES_OVERRIDE is not None:
-            num_stages = _SM70_FLA_STAGES_OVERRIDE
+    if is_sm7x:
+        if _SM7X_FLA_STAGES_OVERRIDE is not None:
+            num_stages = _SM7X_FLA_STAGES_OVERRIDE
         else:
             num_stages = 1 if T <= 1 else 2
     else:
         num_stages = 3
 
-    if is_sm70 and _SM70_FLA_WARPS_OVERRIDE is not None:
-        num_warps = _round_num_warps(_SM70_FLA_WARPS_OVERRIDE)
-    elif is_sm70:
+    if is_sm7x and _SM7X_FLA_WARPS_OVERRIDE is not None:
+        num_warps = _round_num_warps(_SM7X_FLA_WARPS_OVERRIDE)
+    elif is_sm7x:
         if BV <= 8:
             num_warps = 2 if N * HV >= 64 else 4
         elif BV <= 16:
             num_warps = 4
         else:
-            num_warps = 8
+            # SM75 (Turing/RTX 2080 Ti) has 1024 max threads/SM vs SM70's
+            # 2048 threads/SM; cap num_warps at 4 to maintain SM occupancy.
+            num_warps = 4 if is_sm75 else 8
     else:
         num_warps = 1
 

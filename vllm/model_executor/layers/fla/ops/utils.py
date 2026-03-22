@@ -152,6 +152,9 @@ is_nvidia_hopper = is_nvidia and (
 )
 use_cuda_graph = is_nvidia and os.environ.get("FLA_USE_CUDA_GRAPH", "0") == "1"
 is_sm70 = is_nvidia and torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 7 and torch.cuda.get_device_capability()[1] == 0
+is_sm75 = is_nvidia and torch.cuda.is_available() and torch.cuda.get_device_capability() == (7, 5)
+# is_sm7x covers all SM7x devices (SM70 Volta and SM75 Turing/T4/RTX 2080 Ti)
+is_sm7x = is_nvidia and torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 7
 is_gather_supported = hasattr(triton.language, "gather")
 is_tma_supported = (is_nvidia and torch.cuda.get_device_capability(0)[0] >= 9) and (
     hasattr(triton.language, "_experimental_make_tensor_descriptor")
@@ -172,6 +175,7 @@ def get_all_max_shared_mem():
 
 
 class Backend(Enum):
+    TURING = 65536  # T4/RTX 2080 Ti (SM75) max shared mem
     ADA = 101376  # RTX 4090
     AMPERE = 166912  # A100
     HOPPER = 232448  # H100
