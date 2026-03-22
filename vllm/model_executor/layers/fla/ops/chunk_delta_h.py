@@ -16,12 +16,12 @@ from vllm.triton_utils import tl, triton
 
 from .index import prepare_chunk_indices, prepare_chunk_offsets
 from .op import exp
-from .utils import is_sm70, use_cuda_graph
+from .utils import is_sm7x, use_cuda_graph
 
 NUM_WARPS = [2, 4, 8, 16]
 
-def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
-    raw = os.getenv(env_name)
+def _parse_sm7x_int_list(env_name_sm7x: str, env_name_sm70: str, default_vals: list[int]) -> list[int]:
+    raw = os.getenv(env_name_sm7x) or os.getenv(env_name_sm70)
     if raw is None or not raw.strip():
         return default_vals
     out: list[int] = []
@@ -38,20 +38,21 @@ def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
     return out or default_vals
 
 
-# SM70: default to one conservative config to avoid first-request Triton
-# autotune OOM on 2x16G V100 setups, while keeping env overrides available.
-_sm70_delta_h_bv = _parse_sm70_int_list("VLLM_SM70_GDN_DELTA_H_BV", [16])
-_sm70_delta_h_warps = _parse_sm70_int_list("VLLM_SM70_GDN_DELTA_H_WARPS", [4])
-_sm70_delta_h_stages = _parse_sm70_int_list("VLLM_SM70_GDN_DELTA_H_STAGES", [1])
+# SM7x (Volta/Turing): default to one conservative config to avoid first-request
+# Triton autotune OOM on V100/T4/RTX 2080 Ti, while keeping env overrides.
+# VLLM_SM7X_* is preferred; VLLM_SM70_* is the legacy fallback.
+_sm7x_delta_h_bv = _parse_sm7x_int_list("VLLM_SM7X_GDN_DELTA_H_BV", "VLLM_SM70_GDN_DELTA_H_BV", [16])
+_sm7x_delta_h_warps = _parse_sm7x_int_list("VLLM_SM7X_GDN_DELTA_H_WARPS", "VLLM_SM70_GDN_DELTA_H_WARPS", [4])
+_sm7x_delta_h_stages = _parse_sm7x_int_list("VLLM_SM7X_GDN_DELTA_H_STAGES", "VLLM_SM70_GDN_DELTA_H_STAGES", [1])
 
 _delta_h_configs = (
     [
         triton.Config({"BV": BV}, num_warps=num_warps, num_stages=num_stages)
-        for BV in _sm70_delta_h_bv
-        for num_warps in _sm70_delta_h_warps
-        for num_stages in _sm70_delta_h_stages
+        for BV in _sm7x_delta_h_bv
+        for num_warps in _sm7x_delta_h_warps
+        for num_stages in _sm7x_delta_h_stages
     ]
-    if is_sm70
+    if is_sm7x
     else [
         triton.Config({"BV": BV}, num_warps=num_warps, num_stages=num_stages)
         for num_warps in [2, 4]

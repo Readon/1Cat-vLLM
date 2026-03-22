@@ -16,11 +16,11 @@ from vllm.triton_utils import tl, triton
 
 from .index import prepare_chunk_indices
 from .op import exp
-from .utils import is_sm70
+from .utils import is_sm7x
 
 
-def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
-    raw = os.getenv(env_name)
+def _parse_sm7x_int_list(env_name_sm7x: str, env_name_sm70: str, default_vals: list[int]) -> list[int]:
+    raw = os.getenv(env_name_sm7x) or os.getenv(env_name_sm70)
     if raw is None or not raw.strip():
         return default_vals
     out: list[int] = []
@@ -37,16 +37,18 @@ def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
     return out or default_vals
 
 
-# SM70: default to one conservative config to avoid first-request autotune OOM.
-_sm70_kkt_bk = _parse_sm70_int_list("VLLM_SM70_GDN_KKT_BK", [32])
-_sm70_kkt_warps = _parse_sm70_int_list("VLLM_SM70_GDN_KKT_WARPS", [4])
+# SM7x (Volta/Turing): default to one conservative config to avoid first-request
+# autotune OOM on V100/T4/RTX 2080 Ti. VLLM_SM7X_* is preferred; VLLM_SM70_*
+# is the legacy fallback.
+_sm7x_kkt_bk = _parse_sm7x_int_list("VLLM_SM7X_GDN_KKT_BK", "VLLM_SM70_GDN_KKT_BK", [32])
+_sm7x_kkt_warps = _parse_sm7x_int_list("VLLM_SM7X_GDN_KKT_WARPS", "VLLM_SM70_GDN_KKT_WARPS", [4])
 _kkt_configs = (
     [
         triton.Config({"BK": BK}, num_warps=num_warps, num_stages=2)
-        for BK in _sm70_kkt_bk
-        for num_warps in _sm70_kkt_warps
+        for BK in _sm7x_kkt_bk
+        for num_warps in _sm7x_kkt_warps
     ]
-    if is_sm70
+    if is_sm7x
     else [
         triton.Config({"BK": BK}, num_warps=num_warps, num_stages=num_stages)
         for BK in [32, 64, 128]

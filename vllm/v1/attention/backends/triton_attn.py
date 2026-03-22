@@ -43,6 +43,7 @@ MIN_LAUNCH_GRID_SIZE_2D = 128  # Minimum launch grid size of 2D kernel
 NUM_PAR_SOFTMAX_SEGMENTS = 16  # Number of parallel tiled softmax segments
 SM70_TARGET_DECODE_GRID_SIZE = 80
 SM70_MAX_NUM_PAR_SOFTMAX_SEGMENTS = 128
+SM7X_MAX_NUM_PAR_SOFTMAX_SEGMENTS = 128  # alias for clarity
 
 
 def _get_fp8_kv_cache_torch_dtype(kv_cache_dtype: str) -> torch.dtype:
@@ -79,19 +80,44 @@ def _is_sm70() -> bool:
     return capability is not None and capability.major == 7
 
 
+# _is_sm7x is an alias: _is_sm70() already covers all SM7x (major == 7)
+_is_sm7x = _is_sm70
+
+
+def _get_sm7x_target_grid_size() -> int:
+    """Get the SM count for SM7x devices for decode grid sizing.
+
+    Returns the actual multi_processor_count at runtime, which handles:
+    - V100 (SM70): 80 SMs
+    - T4 (SM75): 40 SMs
+    - RTX 2080 Ti (SM75): 68 SMs
+    """
+    try:
+        return torch.cuda.get_device_properties(0).multi_processor_count
+    except RuntimeError as e:
+        logger.warning(
+            "Failed to query SM count for grid sizing, "
+            "falling back to V100 default of %d: %s",
+            SM70_TARGET_DECODE_GRID_SIZE,
+            e,
+        )
+        return SM70_TARGET_DECODE_GRID_SIZE  # fallback to V100 default
+
+
 def _get_default_num_par_softmax_segments(num_heads_kv: int) -> int:
     if not _is_sm70():
         return NUM_PAR_SOFTMAX_SEGMENTS
 
     # For single-request decode, the 3D launch grid is roughly
-    # (1 q-block, num_heads_kv, num_segments). On SM70, low kv-head
-    # parallelism under-utilizes the 80 SMs unless we increase segments.
+    # (1 q-block, num_heads_kv, num_segments). On SM7x, low kv-head
+    # parallelism under-utilizes the SMs unless we increase segments.
+    # Use the actual SM count (80 for V100, 68 for RTX 2080 Ti, 40 for T4).
     target_segments = next_power_of_2(
-        (SM70_TARGET_DECODE_GRID_SIZE + num_heads_kv - 1) // num_heads_kv
+        (_get_sm7x_target_grid_size() + num_heads_kv - 1) // num_heads_kv
     )
     return max(
         NUM_PAR_SOFTMAX_SEGMENTS,
-        min(SM70_MAX_NUM_PAR_SOFTMAX_SEGMENTS, target_segments),
+        min(SM7X_MAX_NUM_PAR_SOFTMAX_SEGMENTS, target_segments),
     )
 
 

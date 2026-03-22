@@ -17,13 +17,13 @@ from vllm.triton_utils import tl, triton
 
 from .index import prepare_chunk_indices
 from .op import exp
-from .utils import FLA_GDN_FIX_BT, check_shared_mem, is_nvidia_hopper, is_sm70
+from .utils import FLA_GDN_FIX_BT, check_shared_mem, is_nvidia_hopper, is_sm7x
 
 BKV_LIST = [64, 128] if check_shared_mem() else [32, 64]
 NUM_WARPS = [2, 4] if is_nvidia_hopper else [2, 4, 8]
 
-def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
-    raw = os.getenv(env_name)
+def _parse_sm7x_int_list(env_name_sm7x: str, env_name_sm70: str, default_vals: list[int]) -> list[int]:
+    raw = os.getenv(env_name_sm7x) or os.getenv(env_name_sm70)
     if raw is None or not raw.strip():
         return default_vals
     out: list[int] = []
@@ -40,22 +40,23 @@ def _parse_sm70_int_list(env_name: str, default_vals: list[int]) -> list[int]:
     return out or default_vals
 
 
-# SM70: default to one conservative config to avoid long-context first-request
-# Triton autotune OOM on 2x16G V100 setups, while keeping env overrides.
-_sm70_chunk_o_bk = _parse_sm70_int_list("VLLM_SM70_GDN_CHUNK_O_BK", [32])
-_sm70_chunk_o_bv = _parse_sm70_int_list("VLLM_SM70_GDN_CHUNK_O_BV", [32])
-_sm70_chunk_o_warps = _parse_sm70_int_list("VLLM_SM70_GDN_CHUNK_O_WARPS", [4])
-_sm70_chunk_o_stages = _parse_sm70_int_list("VLLM_SM70_GDN_CHUNK_O_STAGES", [2])
+# SM7x (Volta/Turing): default to one conservative config to avoid long-context
+# first-request Triton autotune OOM on V100/T4/RTX 2080 Ti, while keeping env
+# overrides. VLLM_SM7X_* is preferred; VLLM_SM70_* is the legacy fallback.
+_sm7x_chunk_o_bk = _parse_sm7x_int_list("VLLM_SM7X_GDN_CHUNK_O_BK", "VLLM_SM70_GDN_CHUNK_O_BK", [32])
+_sm7x_chunk_o_bv = _parse_sm7x_int_list("VLLM_SM7X_GDN_CHUNK_O_BV", "VLLM_SM70_GDN_CHUNK_O_BV", [32])
+_sm7x_chunk_o_warps = _parse_sm7x_int_list("VLLM_SM7X_GDN_CHUNK_O_WARPS", "VLLM_SM70_GDN_CHUNK_O_WARPS", [4])
+_sm7x_chunk_o_stages = _parse_sm7x_int_list("VLLM_SM7X_GDN_CHUNK_O_STAGES", "VLLM_SM70_GDN_CHUNK_O_STAGES", [2])
 
 _chunk_o_configs = (
     [
         triton.Config({"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages)
-        for BK in _sm70_chunk_o_bk
-        for BV in _sm70_chunk_o_bv
-        for num_warps in _sm70_chunk_o_warps
-        for num_stages in _sm70_chunk_o_stages
+        for BK in _sm7x_chunk_o_bk
+        for BV in _sm7x_chunk_o_bv
+        for num_warps in _sm7x_chunk_o_warps
+        for num_stages in _sm7x_chunk_o_stages
     ]
-    if is_sm70
+    if is_sm7x
     else [
         triton.Config({"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages)
         for BK in BKV_LIST

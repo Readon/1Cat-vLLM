@@ -13,16 +13,16 @@ import torch
 
 from vllm.triton_utils import tl, triton
 
-from .utils import is_sm70
+from .utils import is_sm7x
 
 BT_LIST = [8, 16, 32, 64, 128]
 
 USE_DEFAULT_FLA_NORM = int(os.getenv("USE_DEFAULT_FLA_NORM", "0"))
 
-# SM70: reduce autotuner configs to save memory during tuning
+# SM7x (Volta/Turing): reduce autotuner configs to save memory during tuning
 _l2norm1_configs = (
     [triton.Config({}, num_warps=num_warps) for num_warps in [4, 8]]
-    if is_sm70
+    if is_sm7x
     else [triton.Config({}, num_warps=num_warps) for num_warps in [1, 2, 4, 8, 16, 32]]
 )
 _l2norm_configs = (
@@ -31,7 +31,7 @@ _l2norm_configs = (
         for num_warps in [4, 8]
         for BT in [32, 64]
     ]
-    if is_sm70
+    if is_sm7x
     else [
         triton.Config({"BT": BT}, num_warps=num_warps)
         for num_warps in [1, 2, 4, 8, 16]
