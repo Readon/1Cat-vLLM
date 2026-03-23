@@ -1,0 +1,76 @@
+name: Build and push SM wheel Docker images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - docker/Dockerfile.sm70-wheel
+      - docker/Dockerfile.sm75-wheel
+      - docker/entrypoint.sm70.sh
+      - docker/entrypoint.sm75.sh
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag prefix (e.g. v0.0.2). Resulting tags will be <image_tag>-sm70 and <image_tag>-sm75.'
+        required: false
+        default: ''
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          - arch: sm70
+            dockerfile: docker/Dockerfile.sm70-wheel
+            tag_suffix: sm70
+          - arch: sm75
+            dockerfile: docker/Dockerfile.sm75-wheel
+            tag_suffix: sm75
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest-${{ matrix.tag_suffix }},enable=${{ github.event_name == 'push' }}
+            type=raw,value=${{ github.event.release.tag_name }}-${{ matrix.tag_suffix }},enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ inputs.image_tag }}-${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
